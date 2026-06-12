@@ -488,37 +488,59 @@ const SEG_LABELS = {
 };
 
 // ── DATA PARSING ─────────────────────────────────────────────────────
-function parseRows(rows) {
-  // persons with forms
-  const withForm = rows.filter(r => r.nps_forms && r.nps_forms.answers);
-  // persons without forms (only EMs currently missing)
-  const withoutForm = rows.filter(r => !r.nps_forms || !r.nps_forms.answers);
+// nps_forms can arrive in two formats:
+//   new: { answers: { <id>: { type, value, question } }, form_name, submitted_at, ... }
+//   old: { "<question text>": <number>, ... }  (flat, no `answers` wrapper)
+const CT_SEG_MAP = { founder: 'founder', experience_maker: 'em', vc: 'vc' };
+const NPS_QUESTION_TEXT = {
+  founder:   'How likely are you to recommend our program to startups you know so that they can apply?',
+  em:        'How likely are you to recommend our program to other Experience Makers?',
+  vc:        'How likely are you to recommend our program to other VCs?',
+};
 
-  // Build per-segment data
+function parseRows(rows) {
+  const withForm    = rows.filter(r => r.nps_forms != null);
+  const withoutForm = rows.filter(r => r.nps_forms == null);
+
   const segments = { founder: [], em: [], vc: [], portfolio: [] };
 
   for (const row of withForm) {
-    const formName = row.nps_forms.form_name || '';
-    const seg = FORM_SEGMENT[formName];
-    if (!seg) continue;
+    const nf = row.nps_forms;
+    let seg, npsScore, qMap = {}, formName = '', submittedAt;
 
-    const answers = row.nps_forms.answers;
-    const npsKey  = NPS_QUESTION_KEYS[formName];
-    const npsScore = npsKey && answers[npsKey] ? parseInt(answers[npsKey].value) : null;
+    if (nf.answers) {
+      // New nested format
+      formName = nf.form_name || '';
+      seg = FORM_SEGMENT[formName];
+      if (!seg) continue;
 
-    // Build question map: { question_text: score }
-    const qMap = {};
-    for (const [, ans] of Object.entries(answers)) {
-      if (ans.type === 'Dropdown' && ans.question && ans.value !== undefined) {
-        qMap[ans.question] = parseInt(ans.value);
+      submittedAt = nf.submitted_at;
+      const answers = nf.answers;
+      const npsKey  = NPS_QUESTION_KEYS[formName];
+      npsScore = npsKey && answers[npsKey] ? parseInt(answers[npsKey].value) : null;
+
+      for (const [, ans] of Object.entries(answers)) {
+        if (ans.type === 'Dropdown' && ans.question && ans.value !== undefined) {
+          qMap[ans.question] = parseInt(ans.value);
+        }
       }
+    } else {
+      // Old flat format: keys are question texts, values are numbers
+      seg = CT_SEG_MAP[row.contact_type];
+      if (!seg) continue;
+
+      for (const [question, value] of Object.entries(nf)) {
+        if (typeof value === 'number') qMap[question] = value;
+      }
+      const npsQ = NPS_QUESTION_TEXT[seg];
+      npsScore = (npsQ && qMap[npsQ] !== undefined) ? qMap[npsQ] : null;
     }
 
     segments[seg].push({
       name: row.full_name,
       contact_type: row.contact_type,
       form_name: formName,
-      submitted_at: row.nps_forms.submitted_at,
+      submitted_at: submittedAt,
       npsScore,
       qMap,
     });
