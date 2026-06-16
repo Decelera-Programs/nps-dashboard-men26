@@ -327,6 +327,39 @@
     .pf-btn:hover { background: #f0f2f7; }
     .pf-btn.active { background: var(--night); color: #fff; border-color: var(--night); }
 
+    /* ── COMMENTS ── */
+    .comment-block { margin-bottom: 1.25rem; }
+
+    .comment-q-title {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--cloud);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 8px;
+    }
+
+    .comment-item {
+      padding: 10px 14px;
+      background: #fff;
+      border: 0.5px solid #dde1e9;
+      border-radius: 8px;
+      margin-bottom: 6px;
+    }
+
+    .comment-name {
+      font-size: 11px;
+      color: var(--cloud);
+      margin-bottom: 4px;
+    }
+
+    .comment-text {
+      font-size: 13px;
+      color: var(--night);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
     /* ── SEG GRID ── */
     .seg-nps-grid {
       display: grid;
@@ -429,6 +462,18 @@
     <div class="section-label" id="qSectionLabel">Preguntas · promedio</div>
     <div class="questions" id="questions"></div>
 
+    <!-- Open text comments -->
+    <div id="commentsSection" style="display:none">
+      <hr>
+      <details>
+        <summary>
+          <span>Comentarios abiertos <span class="tracker-badge" id="commentsBadge"></span></span>
+          <span class="arrow">⌄</span>
+        </summary>
+        <div style="padding:14px 16px" id="comments"></div>
+      </details>
+    </div>
+
     <hr>
 
     <!-- Tracker -->
@@ -525,7 +570,7 @@ function parseRows(rows) {
 
   for (const row of withForm) {
     const nf = row.nps_forms;
-    let seg, npsScore, qMap = {}, formName = '', submittedAt;
+    let seg, npsScore, qMap = {}, textMap = {}, formName = '', submittedAt;
 
     if (nf.answers) {
       formName = nf.form_name || '';
@@ -553,9 +598,14 @@ function parseRows(rows) {
           npsScore = parseInt(answers[npsQ]);
         }
         for (const [question, value] of Object.entries(answers)) {
-          if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value.trim())) {
-            const num = parseFloat(value);
+          if (typeof value !== 'string') continue;
+          const trimmed = value.trim();
+          if (!trimmed) continue;
+          if (/^\d+(\.\d+)?$/.test(trimmed)) {
+            const num = parseFloat(trimmed);
             if (num >= 1 && num <= 10) qMap[question] = num;
+          } else {
+            textMap[question] = trimmed;
           }
         }
       }
@@ -578,10 +628,27 @@ function parseRows(rows) {
       submitted_at: submittedAt,
       npsScore,
       qMap,
+      textMap,
     });
   }
 
   return { segments, withoutForm };
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Aggregate open-text answers across respondents: { question: [{name, text}] }
+function aggregateComments(respondents) {
+  const acc = {};
+  for (const r of respondents) {
+    for (const [q, text] of Object.entries(r.textMap || {})) {
+      if (!acc[q]) acc[q] = [];
+      acc[q].push({ name: r.name, text });
+    }
+  }
+  return acc;
 }
 
 // Aggregate questions across a list of respondent objects
@@ -702,6 +769,30 @@ function render() {
       <span class="q-score">${a.toFixed(1)}</span>
     </div>
   `).join('');
+
+  // ── Comments
+  const commentsSection = document.getElementById('commentsSection');
+  const commentsByQ = aggregateComments(respondents);
+  const commentEntries = Object.entries(commentsByQ);
+  if (commentEntries.length > 0) {
+    commentsSection.style.display = 'block';
+    const totalComments = commentEntries.reduce((sum, [, items]) => sum + items.length, 0);
+    document.getElementById('commentsBadge').textContent =
+      `${commentEntries.length} pregunta${commentEntries.length !== 1 ? 's' : ''} · ${totalComments} respuesta${totalComments !== 1 ? 's' : ''}`;
+    document.getElementById('comments').innerHTML = commentEntries.map(([q, items]) => `
+      <div class="comment-block">
+        <div class="comment-q-title">${q}</div>
+        ${items.map(({ name, text }) => `
+          <div class="comment-item">
+            <div class="comment-name">${name}</div>
+            <div class="comment-text">${escapeHtml(text)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+  } else {
+    commentsSection.style.display = 'none';
+  }
 
   // ── Tracker
   const sent = respondents.map(r => r.name);
