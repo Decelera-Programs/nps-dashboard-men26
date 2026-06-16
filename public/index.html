@@ -528,19 +528,35 @@ function parseRows(rows) {
     let seg, npsScore, qMap = {}, formName = '', submittedAt;
 
     if (nf.answers) {
-      // New nested format
       formName = nf.form_name || '';
       seg = FORM_SEGMENT[formName];
       if (!seg) continue;
 
       submittedAt = nf.submitted_at;
       const answers = nf.answers;
-      const npsKey  = NPS_QUESTION_KEYS[formName];
-      npsScore = npsKey && answers[npsKey] ? parseInt(answers[npsKey].value) : null;
+      const sampleVal = Object.values(answers)[0];
+      const isIdKeyed = sampleVal !== null && typeof sampleVal === 'object';
 
-      for (const [, ans] of Object.entries(answers)) {
-        if (ans.type === 'Dropdown' && ans.question && ans.value !== undefined) {
-          qMap[ans.question] = parseInt(ans.value);
+      if (isIdKeyed) {
+        // Format A: { <id>: { type, value, question } }
+        const npsKey = NPS_QUESTION_KEYS[formName];
+        npsScore = npsKey && answers[npsKey] ? parseInt(answers[npsKey].value) : null;
+        for (const [, ans] of Object.entries(answers)) {
+          if (ans.type === 'Dropdown' && ans.question && ans.value !== undefined) {
+            qMap[ans.question] = parseInt(ans.value);
+          }
+        }
+      } else {
+        // Format B: { "<question text>": "<score string or text answer>" }
+        const npsQ = NPS_QUESTION_TEXT[seg];
+        if (npsQ && answers[npsQ] !== undefined) {
+          npsScore = parseInt(answers[npsQ]);
+        }
+        for (const [question, value] of Object.entries(answers)) {
+          const num = parseFloat(value);
+          if (!isNaN(num) && num >= 1 && num <= 10) {
+            qMap[question] = num;
+          }
         }
       }
     } else {
