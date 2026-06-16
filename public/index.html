@@ -553,9 +553,9 @@ function parseRows(rows) {
           npsScore = parseInt(answers[npsQ]);
         }
         for (const [question, value] of Object.entries(answers)) {
-          const num = parseFloat(value);
-          if (!isNaN(num) && num >= 1 && num <= 10) {
-            qMap[question] = num;
+          if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value.trim())) {
+            const num = parseFloat(value);
+            if (num >= 1 && num <= 10) qMap[question] = num;
           }
         }
       }
